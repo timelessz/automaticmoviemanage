@@ -90,8 +90,8 @@ DOWNLOADER_MIDDLEWARES = {
 # HTTPCACHE_STORAGE = 'scrapy.extensions.httpcache.FilesystemCacheStorage'
 
 # 自动更新的爬虫数据库
-MYSQL_HOST = '47.52.103.21'
-MYSQL_DBNAME = 'automovie'
+MYSQL_HOST = ''
+MYSQL_DBNAME = ''
 MYSQL_USER = 'root'
 MYSQL_PASSWD = '201671zhuang'
 
