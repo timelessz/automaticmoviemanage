@@ -46,22 +46,29 @@ class MoviescrapyPipeline(object):
 
     # pipeline默认调用
     def process_item(self, item, spider):
+
+        # 正确取到数据
+        # 首先取出 封面图片
+        # 首先从数据库中取出
+        if 'imglist' in item.keys():
+            for imgsrc in item['imglist']:
+                if 'coversrc' not in item.keys() or item['coversrc'] == '':
+                    item['coversrc'] = imgsrc
+                    break
         print('______________________________')
         print(item)
         print('______________________________')
-        # 正确取到数据
-        # 首先取出 封面图片
-        currenttime = int(time.time())
         # 首先从数据库中取出
         # 相关定影的信息
         type_ids_string = ',,'
         if 'type' in item.keys():
             movietype_info = re.split('/| ', item['type'])
             print(movietype_info)
-            type_ids_string = self.typeManage.getSetMovieType(movietype_info)
+            type_ids_string = ''
+            if movietype_info:
+                type_ids_string = self.typeManage.getSetMovieType(movietype_info)
             print(type_ids_string)
-
-        movieInfo = self.movieManage.searchMovieInfo(item['name'])
+        movieInfo = self.movieManage.searchMovieInfo(item)
         item = self.movieManage.fieldSet(item)
         print('-----------------------------')
         print(movieInfo)
@@ -73,8 +80,6 @@ class MoviescrapyPipeline(object):
             diffResult = self.movieManage.diffField(movieInfo, item)
             print('==============================')
             print(diffResult)
-            # print(movieInfo)
-            # print(item)
             print('==============================')
             # 电影更新信息
             self.movieManage.updateMovieInfo(diffResult, movieId, movieName)
@@ -93,7 +98,7 @@ class MoviescrapyPipeline(object):
             self.movieManage.addMovieImgset(item['imglist'], movieInfo['id'], movieInfo['name'], item['comefrom'],
                                             item['href'])
         # 修改电影是不是已经爬取了
-        self.movieManage.changeMovieHasScrapy(movieInfo['name'], item['comefrom'])
+        self.movieManage.changeMovieHasScrapy(movieInfo, item['comefrom'])
 
 
 class MovieManage(object):
@@ -133,12 +138,13 @@ class MovieManage(object):
                 item[content_field['field']] = ''
         return item
 
-    def searchMovieInfo(self, name):
+    def searchMovieInfo(self, item):
         '''
         根据电影名来获取电影数据
         :param name:
         :return: None|movieInfo 电影信息
         '''
+        name = item['title'] if item['title'] else item['name']
         with self.conn.cursor() as cursor:
             selectsql = 'select * from movie_movie_list  WHERE name="%s"' % name
             cursor.execute(selectsql)
@@ -153,8 +159,8 @@ class MovieManage(object):
         :return:
         '''
         # 需要比对的字段信息
-        fields = ['alias_name', 'length', 'doubanscore', 'doubanurl', 'director', 'ages', 'releasedate', 'starring',
-                  'summary', 'language', 'country']
+        fields = ['alias_name', 'length', 'doubanscore', 'doubanurl', 'coversrc', 'director', 'ages', 'releasedate',
+                  'starring', 'summary', 'language', 'country']
         result = {}
         # 需要排除 演员内详 btbtdy
         for perfield in fields:
@@ -192,7 +198,7 @@ class MovieManage(object):
                  currenttime, currenttime))
             self.conn.commit()
             movie_id = cursor.lastrowid
-            return {'id': movie_id, 'name': item['name'], 'href': item['href']}
+            return {'id': movie_id, 'name': item['name'], 'title': item['title'], 'href': item['href']}
 
     def updateMovieInfo(self, diffresult, movieId, movieName):
         '''
@@ -306,7 +312,7 @@ class MovieManage(object):
             return cursor.fetchone()
         return None
 
-    def changeMovieHasScrapy(self, name, comefrom):
+    def changeMovieHasScrapy(self, movieInfo, comefrom):
         '''
         修改电影是不是已经爬取
         :param comefrom:
@@ -315,6 +321,7 @@ class MovieManage(object):
         后期需要添加update
         '''
         #  首先需要查下是不是已经包含了
+        name = movieInfo['title'] if movieInfo['title'] else movieInfo['name']
         currenttime = int(time.time())
         with self.conn.cursor() as cursor:
             insertSql = "insert into automovie.movie_has_scrapy_info(name, comefrom, reget, addtime, updatetime) VALUES('%s','%s','10','%s','%s') " % (
@@ -346,7 +353,6 @@ class MovieTypeManage(object):
         sql = "select id,name from movie_type"
         print(sql)
         with self.conn.cursor() as cursor:
-            print('dsadsa')
             cursor.execute(sql)
             type_info = cursor.fetchall()
             print(type_info)

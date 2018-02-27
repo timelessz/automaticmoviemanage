@@ -300,6 +300,9 @@ class XunleipuSpider(scrapy.Spider):
         item['content'] = pre_content
         content_list = content.split('◎')
         if len(content_list) < 2:
+            for content_field in all_field:
+                if not content_field['field'] in item.keys():
+                    item[content_field['field']] = ''
             return item
         for content_field in content_list:
             # 清除\r\n

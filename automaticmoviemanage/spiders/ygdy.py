@@ -14,6 +14,13 @@ class YgdySpider(scrapy.Spider):
     name = 'ygdy'
     allowed_domains = ['ygdy8.net']
     start_urls = ['http://ygdy8.net/']
+    # 每一个 spider 设置不一样的 pipelines
+    custom_settings = {
+        'ITEM_PIPELINES': {
+            'automaticmoviemanage.pipelines.MoviescrapyPipeline': 100,
+        },
+        'DOWNLOAD_DELAY': 10
+    }
 
     def __init__(self, *args, **kwargs):
         super(YgdySpider, self).__init__(*args, **kwargs)
@@ -91,6 +98,7 @@ class YgdySpider(scrapy.Spider):
         tables = sel.xpath('//*[@id="header"]/div/div[3]/div[3]/div[2]/div[2]/div[2]/ul/td/table')
         for table in tables:
             item = AutomaticmoviemanageItem()
+            item['comefrom'] = 'ygdy'
             title = table.xpath('tr[2]/td[2]/b/a[2]')
             href = title.xpath('@href').extract_first()
             text = title.xpath('text()').extract_first()
@@ -132,6 +140,7 @@ class YgdySpider(scrapy.Spider):
         tables = sel.xpath('//*[@id="header"]/div/div[3]/div[3]/div[2]/div[2]/div[2]/ul/td/table')
         for table in tables:
             item = AutomaticmoviemanageItem()
+            item['comefrom'] = 'ygdy'
             title = table.xpath('tr[2]/td[2]/b/a[2]')
             href = title.xpath('@href').extract_first()
             text = title.xpath('text()').extract_first()
@@ -262,6 +271,9 @@ class YgdySpider(scrapy.Spider):
             '''
             解析数据异常
             '''
+            for content_field in all_field:
+                if not content_field['field'] in item.keys():
+                    item[content_field['field']] = ''
             return item
         for content_field in content_list:
             # 清除\r\n
