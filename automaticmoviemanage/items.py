@@ -16,6 +16,8 @@ class AutomaticmoviemanageItem(scrapy.Item):
     title = scrapy.Field()
     # 电影名称
     name = scrapy.Field()
+    # 电影名称
+    other_name = scrapy.Field()
     # 别名
     alias_name = scrapy.Field()
     # 年代

@@ -281,7 +281,7 @@ class XunleipuSpider(scrapy.Spider):
         :return:
         '''
         all_field = [
-            {'text': '片名', 'field': 'name'},
+            {'text': '片名', 'field': 'other_name'},
             {'text': '译名', 'field': 'alias_name'},
             {'text': '又名', 'field': 'alias_name'},
             {'text': '年代', 'field': 'ages'},
@@ -338,15 +338,7 @@ class XunleipuSpider(scrapy.Spider):
                 item[content_field['field']] = ''
         if item['region_id'] != 4:
             # 别名跟名字互换
-            name = item['name']
-            alias_name = item['alias_name']
-            item['alias_name'] = name
-            item['name'] = alias_name
-            if '/' in item['name']:
-                names = item['name'].split('/')
-                item['name'] = names[0]
-                for pername in names:
-                    item['alias_name'] = item['alias_name'] + '/' + pername
+            item['alias_name'] = item['other_name']
         return item
 
     def replace_str(self, content_field, a_download_info):
