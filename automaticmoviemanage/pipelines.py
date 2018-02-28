@@ -144,7 +144,7 @@ class MovieManage(object):
         :param name:
         :return: None|movieInfo 电影信息
         '''
-        name = item['title'] if item['title'] else item['name']
+        name = item['name'] if item['name'] else item['title']
         with self.conn.cursor() as cursor:
             selectsql = 'select * from movie_movie_list  WHERE name="%s"' % name
             cursor.execute(selectsql)
@@ -321,7 +321,7 @@ class MovieManage(object):
         后期需要添加update
         '''
         #  首先需要查下是不是已经包含了
-        name = movieInfo['title'] if movieInfo['title'] else movieInfo['name']
+        name = movieInfo['name'] if movieInfo['name'] else movieInfo['title']
         currenttime = int(time.time())
         with self.conn.cursor() as cursor:
             insertSql = "insert into automovie.movie_has_scrapy_info(name, comefrom, reget, addtime, updatetime) VALUES('%s','%s','10','%s','%s') " % (

@@ -97,7 +97,8 @@ class Hao6vSpider(scrapy.Spider):
             if text is None:
                 text = title.xpath('font/text()').extract_first()
             item['title'] = text.strip()
-            if self.get_movie(item['title']) is None:
+            item['name'] = self.parse_name(item['title'])
+            if self.get_movie(item['name']) is None:
                 # 获取详细内容页面 的url 使用相对路径跟绝对路径
                 item['region_id'] = 0
                 item['region_name'] = ''
@@ -117,10 +118,23 @@ class Hao6vSpider(scrapy.Spider):
             request = scrapy.Request(url=url, callback=self.parse_list)
             yield request
 
-    def get_movie(self, title):
+    def get_movie(self, name):
         cur = self.conn.cursor()
-        cur.execute("SELECT id FROM automovie.movie_has_scrapy_info where name ='" + title + "' and comefrom='hao6v'")
+        cur.execute("SELECT id FROM automovie.movie_has_scrapy_info where name ='" + name + "' and comefrom='hao6v'")
         return cur.fetchone()
+
+    def parse_name(self, title):
+        '''
+        title 相关
+        :param title: 标题  用于截取数据
+        :return:
+        '''
+        if '《' in title and '》' in title:
+            startpos = title.find('《')
+            stoppos = title.find('》')
+            name = title[startpos + 1:stoppos].strip()
+            return name
+        return title
 
     def parse_list(self, response):
         '''
@@ -140,7 +154,8 @@ class Hao6vSpider(scrapy.Spider):
             if text is None:
                 text = title.xpath('font/text()').extract_first()
             item['title'] = text.strip()
-            if self.get_movie(item['title']) is None:
+            item['name'] = self.parse_name(item['title'])
+            if self.get_movie(item['name']) is None:
                 item['region_id'] = 0
                 item['region_name'] = ''
                 # 获取详细内容页面 的url 使用相对路径跟绝对路径
@@ -209,7 +224,7 @@ class Hao6vSpider(scrapy.Spider):
         :return:
         '''
         all_field = [
-            {'text': '片名', 'field': 'name'},
+            # {'text': '片名', 'field': 'name'},
             {'text': '译名', 'field': 'alias_name'},
             {'text': '又名', 'field': 'alias_name'},
             {'text': '年代', 'field': 'ages'},

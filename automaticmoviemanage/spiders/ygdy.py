@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import re
 import urllib
+from builtins import print
+
 import pymysql
 import scrapy
 from parsel import Selector
@@ -103,7 +105,8 @@ class YgdySpider(scrapy.Spider):
             href = title.xpath('@href').extract_first()
             text = title.xpath('text()').extract_first()
             item['title'] = text.strip()
-            if self.get_movie(item['title']) is None:
+            item['name'] = self.parse_name(item['title'])
+            if self.get_movie(item['name']) is None:
                 item['region_id'] = category['id']
                 item['region_name'] = category['name']
                 parent_url = category['url']
@@ -145,7 +148,9 @@ class YgdySpider(scrapy.Spider):
             href = title.xpath('@href').extract_first()
             text = title.xpath('text()').extract_first()
             item['title'] = text.strip()
-            if self.get_movie(item['title']) is None:
+            #  截取书名号
+            item['name'] = self.parse_name(item['title'])
+            if self.get_movie(item['name']) is None:
                 # 首先需要查询下是不是已经有重复 重复的跳出
                 item['region_id'] = category['id']
                 item['region_name'] = category['name']
@@ -161,6 +166,19 @@ class YgdySpider(scrapy.Spider):
                 print('**********************************')
                 print(item['title'] + '电影已经存在，放弃爬取数据')
                 print('**********************************')
+
+    def parse_name(self, title):
+        '''
+        title 相关
+        :param title: 标题  用于截取数据
+        :return:
+        '''
+        if '《' in title and '》' in title:
+            startpos = title.find('《')
+            stoppos = title.find('》')
+            name = title[startpos + 1:stoppos].strip()
+            return name
+        return title
 
     def parse_content(self, response):
         '''
@@ -304,6 +322,7 @@ class YgdySpider(scrapy.Spider):
                 item['name'] = names[0]
                 for pername in names:
                     item['alias_name'] = item['alias_name'] + '/' + pername
+        # print(item)
         return item
 
     def replace_str(self, content_field, a_download_info):

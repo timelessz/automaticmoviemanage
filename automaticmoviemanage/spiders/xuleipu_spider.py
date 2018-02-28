@@ -142,9 +142,9 @@ class XunleipuSpider(scrapy.Spider):
             item['comefrom'] = 'xunleipu'
             title = tr.xpath('string(td[1]/a)').extract_first()
             item['title'] = title.replace(str(i), '', 1).strip()
-            print(item['title'])
+            item['name'] = self.parse_name(item['title'])
             i = i + 1
-            if self.get_movie(item['title']) is None:
+            if self.get_movie(item['name']) is None:
                 item['addtime'] = tr.xpath('string(td[2])').extract_first()
                 item['region_id'] = category['id']
                 item['region_name'] = category['name']
@@ -175,10 +175,23 @@ class XunleipuSpider(scrapy.Spider):
             request.meta['category'] = category
             yield request
 
-    def get_movie(self, title):
+    def get_movie(self, name):
         cur = self.conn.cursor()
-        cur.execute("SELECT id FROM movie_has_scrapy_info where name = '" + title + "' and comefrom='xunleipu'")
+        cur.execute("SELECT id FROM movie_has_scrapy_info where name = '" + name + "' and comefrom='xunleipu'")
         return cur.fetchone()
+
+    def parse_name(self, title):
+        '''
+        title 相关
+        :param title: 标题  用于截取数据
+        :return:
+        '''
+        if '《' in title and '》' in title:
+            startpos = title.find('《')
+            stoppos = title.find('》')
+            name = title[startpos + 1:stoppos].strip()
+            return name
+        return title
 
     def parse_list(self, response):
         '''
@@ -196,8 +209,9 @@ class XunleipuSpider(scrapy.Spider):
             title = tr.xpath('string(td[1]/a)').extract_first()
             item['title'] = title.replace(str(i), '', 1).strip()
             # 首先需要查询下是不是已经有重复 重复的跳出
+            item['name'] = self.parse_name(item['title'])
             i = i + 1
-            if self.get_movie(item['title']) is None:
+            if self.get_movie(item['name']) is None:
                 item['addtime'] = tr.xpath('string(td[2])').extract_first()
                 item['region_id'] = category['id']
                 item['region_name'] = category['name']
