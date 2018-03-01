@@ -314,8 +314,8 @@ class YgdySpider(scrapy.Spider):
         if item['region_id'] != 4:
             # 别名跟名字互换
             item['alias_name'] = item['other_name']
-        # print(item)
-        return item
+        if len(item['content']) >= 20:
+            return item
 
     def replace_str(self, content_field, a_download_info):
         print('简介截取^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
