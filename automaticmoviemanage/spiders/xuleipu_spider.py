@@ -11,7 +11,9 @@ from scrapy.selector import Selector
 # 读取配置文件相关
 from scrapy.utils.project import get_project_settings
 
+from automaticmoviemanage.dborm import getsession
 from automaticmoviemanage.items import AutomaticmoviemanageItem
+from automaticmoviemanage.model.models import MovieHasScrapyInfo
 
 '''
 思路：
@@ -30,6 +32,9 @@ class XunleipuSpider(scrapy.Spider):
 
     # 每一个 spider 设置不一样的 pipelines
     custom_settings = {
+        "DOWNLOADER_MIDDLEWARES": {
+            'automaticmoviemanage.middlewares.SeleniumWebdriver': 10,
+        },
         'ITEM_PIPELINES': {
             'automaticmoviemanage.pipelines.MoviescrapyPipeline': 100,
         },
@@ -38,17 +43,14 @@ class XunleipuSpider(scrapy.Spider):
 
     def __init__(self, *args, **kwargs):
         super(XunleipuSpider, self).__init__(*args, **kwargs)
-        setting = get_project_settings()
+        settings = get_project_settings()
         dbargs = dict(
-            host=setting.get('MYSQL_HOST'),
-            port=3306,
-            user=setting.get('MYSQL_USER'),
-            password=setting.get('MYSQL_PASSWD'),
-            db=setting.get('MYSQL_DBNAME'),
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor,
+            host=settings.get('MYSQL_HOST'),
+            user=settings.get('MYSQL_USER'),
+            password=settings.get('MYSQL_PASSWD'),
+            db=settings.get('MYSQL_DBNAME')
         )
-        self.conn = pymysql.connect(**dbargs)
+        self.DBSession = getsession(**dbargs)
         self.base_url = 'http://www.xlp2.com'
 
     def start_requests(self):
@@ -157,6 +159,7 @@ class XunleipuSpider(scrapy.Spider):
                     # href = self.base_url + relative_href
                     item['href'] = href
                     request = scrapy.Request(url=href, callback=self.parse_content)
+                    request.meta['web'] = True
                     request.meta['item'] = item
                     print(href)
                     yield request
@@ -176,9 +179,7 @@ class XunleipuSpider(scrapy.Spider):
             yield request
 
     def get_movie(self, name):
-        cur = self.conn.cursor()
-        cur.execute("SELECT id FROM movie_has_scrapy_info where name = '" + name + "' and comefrom='xunleipu'")
-        return cur.fetchone()
+        return self.DBSession.query(MovieHasScrapyInfo).filter_by(name=name, comefrom='xunleipu').first()
 
     def parse_name(self, title):
         '''
@@ -220,11 +221,10 @@ class XunleipuSpider(scrapy.Spider):
                 relative_href = tr.xpath('td[1]/a/@href').extract_first()
                 if relative_href:
                     href = urllib.parse.urljoin(parent_url, relative_href)
-                    # href = self.base_url + relative_href
                     item['href'] = href
                     request = scrapy.Request(url=href, callback=self.parse_content)
                     request.meta['item'] = item
-                    print(href)
+                    request.meta['web'] = True
                     yield request
             else:
                 time.sleep(1)
@@ -258,8 +258,7 @@ class XunleipuSpider(scrapy.Spider):
                                     'type_name': download_info['type_name']})
         if not a_download_info:
             print(content_sel.extract())
-            print(
-                '/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////没有获取到电影下载链接///////////////////////////////////')
+            print('/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////没有获取到电影下载链接///////////////////////////////////')
         item['download_a'] = a_download_info
         # 提取处内容来
         if content_sel:
@@ -311,7 +310,7 @@ class XunleipuSpider(scrapy.Spider):
         # 清除空格
         content = content.replace(u'\u3000', u'')
         # item['content'] = self.replace_str(content, a_download_info)
-        item['content'] = pre_content
+        item['content'] = content
         content_list = content.split('◎')
         if len(content_list) < 2:
             for content_field in all_field:
@@ -321,6 +320,7 @@ class XunleipuSpider(scrapy.Spider):
         for content_field in content_list:
             # 清除\r\n
             content_field = content_field.strip(' \t\n\r')
+
             if not content_field:
                 continue
             for field in all_field:

@@ -9,7 +9,9 @@ from parsel import Selector
 from scrapy import Selector
 from scrapy.utils.project import get_project_settings
 
+from automaticmoviemanage.dborm import getsession
 from automaticmoviemanage.items import AutomaticmoviemanageItem
+from automaticmoviemanage.model.models import MovieHasScrapyInfo
 
 
 class YgdySpider(scrapy.Spider):
@@ -18,6 +20,9 @@ class YgdySpider(scrapy.Spider):
     start_urls = ['http://ygdy8.net/']
     # 每一个 spider 设置不一样的 pipelines
     custom_settings = {
+        "DOWNLOADER_MIDDLEWARES": {
+            'automaticmoviemanage.middlewares.SeleniumWebdriver': 10,
+        },
         'ITEM_PIPELINES': {
             'automaticmoviemanage.pipelines.MoviescrapyPipeline': 100,
         },
@@ -26,23 +31,18 @@ class YgdySpider(scrapy.Spider):
 
     def __init__(self, *args, **kwargs):
         super(YgdySpider, self).__init__(*args, **kwargs)
-        setting = get_project_settings()
+        settings = get_project_settings()
         dbargs = dict(
-            host=setting.get('MYSQL_HOST'),
-            port=3306,
-            user=setting.get('MYSQL_USER'),
-            password=setting.get('MYSQL_PASSWD'),
-            db=setting.get('MYSQL_DBNAME'),
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor,
+            host=settings.get('MYSQL_HOST'),
+            user=settings.get('MYSQL_USER'),
+            password=settings.get('MYSQL_PASSWD'),
+            db=settings.get('MYSQL_DBNAME')
         )
-        self.conn = pymysql.connect(**dbargs)
+        self.DBSession = getsession(**dbargs)
         self.base_url = 'http://www.ygdy8.net'
 
     def get_movie(self, title):
-        cur = self.conn.cursor()
-        cur.execute("SELECT id FROM automovie.movie_has_scrapy_info where name = '" + title + "' and comefrom='ygdy'")
-        return cur.fetchone()
+        return self.DBSession.query(MovieHasScrapyInfo).filter_by(name=title, comefrom='ygdy').first()
 
     def start_requests(self):
         '''
@@ -282,7 +282,7 @@ class YgdySpider(scrapy.Spider):
         # 替换掉原来有的链接
         re_a = re.compile('<\s*a[^>]*>[^<]*<\s*/\s*a\s*>', re.I)
         pre_content = re_a.sub('', pre_content)
-        item['content'] = pre_content
+        item['content'] = content
         # 之前的url 这块是需要保存到之前的库中的数据
         content_list = content.split('◎')
         if len(content_list) < 2:

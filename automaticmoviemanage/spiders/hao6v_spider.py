@@ -1,12 +1,15 @@
 # -*- coding: UTF-8 -*-
-import pymysql
+from builtins import print
+
 import re
 import scrapy
 from scrapy.selector import Selector
 # 读取配置文件相关
 from scrapy.utils.project import get_project_settings
 
+from automaticmoviemanage.dborm import getsession
 from automaticmoviemanage.items import AutomaticmoviemanageItem
+from automaticmoviemanage.model.models import MovieHasScrapyInfo
 
 '''
 思路：
@@ -35,17 +38,14 @@ class Hao6vSpider(scrapy.Spider):
 
     def __init__(self, *args, **kwargs):
         super(Hao6vSpider, self).__init__(*args, **kwargs)
-        setting = get_project_settings()
+        settings = get_project_settings()
         dbargs = dict(
-            host=setting.get('MYSQL_HOST'),
-            port=3306,
-            user=setting.get('MYSQL_USER'),
-            password=setting.get('MYSQL_PASSWD'),
-            db=setting.get('MYSQL_DBNAME'),
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor,
+            host=settings.get('MYSQL_HOST'),
+            user=settings.get('MYSQL_USER'),
+            password=settings.get('MYSQL_PASSWD'),
+            db=settings.get('MYSQL_DBNAME')
         )
-        self.conn = pymysql.connect(**dbargs)
+        self.DBSession = getsession(**dbargs)
         self.base_url = 'http://www.hao6v.com/'
 
     def start_requests(self):
@@ -98,7 +98,7 @@ class Hao6vSpider(scrapy.Spider):
                 text = title.xpath('font/text()').extract_first()
             item['title'] = text.strip()
             item['name'] = self.parse_name(item['title'])
-            if self.get_movie(item['name']) is None:
+            if self.get_movie(item['name']) is None and '佳片推荐' not in item['title']:
                 # 获取详细内容页面 的url 使用相对路径跟绝对路径
                 item['region_id'] = 0
                 item['region_name'] = ''
@@ -112,16 +112,14 @@ class Hao6vSpider(scrapy.Spider):
                 print('**********************************')
                 print(item['title'] + '电影已经存在，放弃爬取数据')
                 print('**********************************')
-        # for i in range(2, int(page_num) + 1):
-        for i in range(2, 20):
+        for i in range(2, int(page_num) + 1):
+            # for i in range(2, 20):
             url = start_url % i
             request = scrapy.Request(url=url, callback=self.parse_list)
             yield request
 
     def get_movie(self, name):
-        cur = self.conn.cursor()
-        cur.execute("SELECT id FROM automovie.movie_has_scrapy_info where name ='" + name + "' and comefrom='hao6v'")
-        return cur.fetchone()
+        return self.DBSession.query(MovieHasScrapyInfo).filter_by(name=name, comefrom='hao6v').first()
 
     def parse_name(self, title):
         '''
@@ -177,7 +175,8 @@ class Hao6vSpider(scrapy.Spider):
         item = response.meta['item']
         sel = Selector(response)
         # 这个地方要修改 为
-        downloadtable_html = sel.xpath('//*[@id="endText"]/table').extract_first()
+        endtext = sel.xpath('//*[@id="endText"]').extract_first()
+        downloadtable_html = Selector(text=endtext).xpath('//table').extract_first()
         download_link_a = Selector(text=downloadtable_html).xpath('//a')
         a_download_info = []
         for a in download_link_a:
@@ -263,7 +262,7 @@ class Hao6vSpider(scrapy.Spider):
         # 替换掉原来有的链接
         re_a = re.compile('<\s*a[^>]*>[^<]*<\s*/\s*a\s*>', re.I)
         pre_content = re_a.sub('', pre_content)
-        item['content'] = pre_content[18:pre_content.find('<p><strong>')]
+        item['content'] = content
         content = content[0:content.find('【下载地址】')].strip(' \t\n\r')
         content_list = content.split('◎')
         if len(content_list) < 2:

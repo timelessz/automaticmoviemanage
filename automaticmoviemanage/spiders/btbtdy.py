@@ -4,14 +4,16 @@ import urllib
 import pymysql
 import re
 import scrapy
-from builtins import list, print
+from builtins import list, print, filter
 
 from functools import reduce
 from scrapy.selector import Selector
 # 读取配置文件相关
 from scrapy.utils.project import get_project_settings
 
+from automaticmoviemanage.dborm import getsession
 from automaticmoviemanage.items import AutomaticmoviemanageItem
+from automaticmoviemanage.model.models import MovieHasScrapyInfo
 
 '''
 爬取btbtdy 网站相关功能
@@ -34,17 +36,14 @@ class BtbtdySpider(scrapy.Spider):
 
     def __init__(self, *args, **kwargs):
         super(BtbtdySpider, self).__init__(*args, **kwargs)
-        setting = get_project_settings()
+        settings = get_project_settings()
         dbargs = dict(
-            host=setting.get('MYSQL_HOST'),
-            port=3306,
-            user=setting.get('MYSQL_USER'),
-            password=setting.get('MYSQL_PASSWD'),
-            db=setting.get('MYSQL_DBNAME'),
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor,
+            host=settings.get('MYSQL_HOST'),
+            user=settings.get('MYSQL_USER'),
+            password=settings.get('MYSQL_PASSWD'),
+            db=settings.get('MYSQL_DBNAME')
         )
-        self.conn = pymysql.connect(**dbargs)
+        self.DBSession = getsession(**dbargs)
         self.base_url = 'http://www.btbtdy.com/'
         self.downloadlink_url = 'http://www.btbtdy.com/vidlist/%s.html'
         self.region = {
@@ -83,9 +82,7 @@ class BtbtdySpider(scrapy.Spider):
                 yield request
 
     def get_movie(self, title):
-        cur = self.conn.cursor()
-        cur.execute("SELECT id FROM automovie.movie_has_scrapy_info where name='" + title + "' and comefrom='btbtdy'")
-        return cur.fetchone()
+        return self.DBSession.query(MovieHasScrapyInfo).filter_by(name=title, comefrom='btbtdy').first()
 
     def parse_list(self, response):
         '''
@@ -117,7 +114,7 @@ class BtbtdySpider(scrapy.Spider):
                     href = urllib.parse.urljoin(parenturl, href)
                     item['href'] = href
                     print('开始爬取' + item['title'])
-                    request = scrapy.Request(url=href, callback=self.parse_content)
+                    request = scrapy.Request(url=href, callback=self.parse_content, priority=20)
                     request.meta['item'] = item
                     request.meta['id'] = movie_id
                     yield request
@@ -125,10 +122,6 @@ class BtbtdySpider(scrapy.Spider):
                 print('**********************************')
                 print(item['title'] + '电影已经存在，放弃爬取数据')
                 print('**********************************')
-
-
-
-
 
     def subhtml(self, html):
         dr = re.compile(r'<[^>]+>', re.S)
@@ -145,9 +138,9 @@ class BtbtdySpider(scrapy.Spider):
         content = sel.xpath(
             '/html/body/*[contains(@class,"topur")]/*[contains(@class,"play")]/*[contains(@class,"vod")]/*[contains(@class,"vod_intro")]')
         ages = content.xpath('h1/span/text()').extract_first()
-        item['ages'] = ages[2:len(ages) - 1]
+        item['ages'] = ages[2:len(ages) - 1] if ages else ''
         des = content.xpath('string(.//*[@class="des"])').extract_first()
-        item['summary'] = des.replace('剧情介绍：', '').replace(u'\u3000', u'')
+        item['summary'] = des.replace('剧情介绍：', '').replace(u'\u3000', u'') if des else ''
         field = content.xpath('dl').extract_first()
         # 清除空格 清除 &nbsp;
         field = field.replace(u'\u3000', u'').replace(u'\xa0', u'')
@@ -170,6 +163,9 @@ class BtbtdySpider(scrapy.Spider):
         elif country == '欧美':
             item['region_id'] = '1'
             item['region_name'] = '欧美电影'
+        elif country == '美国':
+            item['region_id'] = '1'
+            item['region_name'] = '欧美电影'
         elif country == '泰国':
             item['region_id'] = '8'
             item['region_name'] = '泰国电影'
@@ -178,7 +174,7 @@ class BtbtdySpider(scrapy.Spider):
             item['region_name'] = '印度电影'
         # 接下来新发起一个请求 请求下下载链接
         url = self.downloadlink_url % id
-        request = scrapy.Request(url=url, callback=self.parse_downloadlink)
+        request = scrapy.Request(url=url, callback=self.parse_downloadlink, priority=30)
         request.meta['item'] = item
         yield request
 

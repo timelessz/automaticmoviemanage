@@ -9,22 +9,17 @@
 # 2、获取电影的id 添加下载链接，添加之前首先比对下是不是已经有了。
 # 3、获取电影的id 添加电影的图片集。
 import re
-from builtins import print
-
-import pymysql
 import time
 
-
-class AutomaticmoviemanagePipeline(object):
-    def process_item(self, item, spider):
-        print(item)
-        return item
+from automaticmoviemanage.dborm import getsession
+from automaticmoviemanage.model.models import MovieType, MovieMovieList, MovieDownloadLink, MovieImglist, \
+    MovieHasScrapyInfo
 
 
 class MoviescrapyPipeline(object):
 
-    def __init__(self, conn, dbargs):
-        self.conn = conn
+    def __init__(self, dbargs):
+        self.DBSession = getsession(**dbargs)
         self.typeManage = MovieTypeManage(dbargs)
         self.movieManage = MovieManage(dbargs)
 
@@ -34,19 +29,14 @@ class MoviescrapyPipeline(object):
         settings = crawler.settings
         dbargs = dict(
             host=settings.get('MYSQL_HOST'),
-            port=3306,
             user=settings.get('MYSQL_USER'),
             password=settings.get('MYSQL_PASSWD'),
-            db=settings.get('MYSQL_DBNAME'),
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor,
+            db=settings.get('MYSQL_DBNAME')
         )
-        connection = pymysql.connect(**dbargs)
-        return cls(connection, dbargs)
+        return cls(dbargs)
 
     # pipeline默认调用
     def process_item(self, item, spider):
-
         # 正确取到数据
         # 首先取出 封面图片
         # 首先从数据库中取出
@@ -63,19 +53,17 @@ class MoviescrapyPipeline(object):
         type_ids_string = ',,'
         if 'type' in item.keys():
             movietype_info = re.split('/| ', item['type'])
-            print(movietype_info)
             type_ids_string = ''
             if movietype_info:
                 type_ids_string = self.typeManage.getSetMovieType(movietype_info)
-            print(type_ids_string)
         movieInfo = self.movieManage.searchMovieInfo(item)
         item = self.movieManage.fieldSet(item)
         print('-----------------------------')
         print(movieInfo)
         print('-----------------------------')
         if movieInfo:
-            movieId = movieInfo['id']
-            movieName = movieInfo['name']
+            movieId = movieInfo.id
+            movieName = movieInfo.name
             # 表示存在该电影 找出不一致的地方然后更新 差找出不一致的字段然后更新
             diffResult = self.movieManage.diffField(movieInfo, item)
             print('==============================')
@@ -89,16 +77,19 @@ class MoviescrapyPipeline(object):
             print('|||||||||||||||||||||||||||||||||')
             print(movieInfo)
             print('|||||||||||||||||||||||||||||||||')
+            movieId = movieInfo['id']
+            movieName = movieInfo['name']
             pass
             # 匹配操作下载链接 还有图片集
         if 'download_a' in item.keys():
-            self.movieManage.addMovieDownload(item['download_a'], movieInfo['id'], movieInfo['name'], item['href'],
+            print(item['download_a'])
+            self.movieManage.addMovieDownload(item['download_a'], movieId, movieName, item['href'],
                                               item['comefrom'])
         if 'imglist' in item.keys():
-            self.movieManage.addMovieImgset(item['imglist'], movieInfo['id'], movieInfo['name'], item['comefrom'],
+            self.movieManage.addMovieImgset(item['imglist'], movieId, movieName, item['comefrom'],
                                             item['href'])
         # 修改电影是不是已经爬取了
-        self.movieManage.changeMovieHasScrapy(movieInfo, item['comefrom'])
+        self.movieManage.changeMovieHasScrapy(movieName, item['comefrom'])
 
 
 class MovieManage(object):
@@ -124,12 +115,8 @@ class MovieManage(object):
              {'text': '语言', 'field': 'language'},
              {'text': '产地', 'field': 'country'}]
 
-    # name, alias_name, title, coversrc, type, length, doubanscore, doubanurl,
-    # imdburl, imdbscore, region_id, region_name, director, ages, releasedate, starring, summary, content,
-    # tags, "language", country, created_at, updated_at
-
     def __init__(self, dbargs):
-        self.conn = pymysql.connect(**dbargs)
+        self.DBSession = getsession(**dbargs)
 
     def fieldSet(self, item):
         # 页面设置
@@ -145,10 +132,10 @@ class MovieManage(object):
         :return: None|movieInfo 电影信息
         '''
         name = item['name'] if item['name'] else item['title']
-        with self.conn.cursor() as cursor:
-            selectsql = 'select * from movie_movie_list  WHERE name="%s"' % name
-            cursor.execute(selectsql)
-            return cursor.fetchone()
+        movie = self.DBSession.query(MovieMovieList).filter_by(name=name).first()
+        if movie:
+            return movie
+        return None
 
     def diffField(self, movieInfo, item):
         '''
@@ -164,14 +151,15 @@ class MovieManage(object):
         result = {}
         # 需要排除 演员内详 btbtdy
         for perfield in fields:
+            dbfield = getattr(movieInfo, perfield)
             if perfield == 'starring':
-                if movieInfo[perfield] == '内详':
+                if dbfield == '内详' and item[perfield] != '内详':
                     result[perfield] = item[perfield]
                 continue
-            if movieInfo[perfield] and item[perfield]:
+            if dbfield and item[perfield]:
                 # 都存在的情况下
                 pass
-            elif movieInfo[perfield]:
+            elif dbfield:
                 # 数据库中存在的情况下
                 pass
             else:
@@ -188,38 +176,50 @@ class MovieManage(object):
         :todo  需要循环下是不是当前的爬取数据有些字段不存在
         '''
         currenttime = int(time.time())
-        with self.conn.cursor() as cursor:
-            cursor.execute(
-                "insert into movie_movie_list (name, alias_name, title, coversrc, type, length, doubanscore, doubanurl, imdburl, imdbscore, region_id, region_name, director, ages, releasedate, starring, summary, content, language, country,href,comefrom,created_at, updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (item['name'], item['alias_name'], item['title'], item['coversrc'], type_ids_str, item['length'],
-                 item['doubanscore'], item['doubanurl'], item['imdburl'], item['imdbscore'], item['region_id'],
-                 item['region_name'], item['director'], item['ages'], item['releasedate'], item['starring'],
-                 item['summary'], item['content'], item['language'], item['country'], item['href'], item['comefrom'],
-                 currenttime, currenttime))
-            self.conn.commit()
-            movie_id = cursor.lastrowid
-            return {'id': movie_id, 'name': item['name'], 'title': item['title'], 'href': item['href']}
+        movie = MovieMovieList(
+            name=item['name'],
+            alias_name=item['alias_name'],
+            title=item['title'],
+            coversrc=item['coversrc'],
+            type=type_ids_str,
+            length=item['length'],
+            doubanscore=item['doubanscore'],
+            doubanurl=item['doubanurl'],
+            imdburl=item['imdburl'],
+            imdbscore=item['imdbscore'],
+            region_id=item['region_id'],
+            region_name=item['region_name'],
+            director=item['director'],
+            ages=item['ages'],
+            releasedate=item['releasedate'],
+            starring=item['starring'],
+            summary=item['summary'],
+            content=item['content'],
+            language=item['language'],
+            country=item['country'],
+            href=item['href'],
+            comefrom=item['comefrom'],
+            created_at=currenttime,
+            updated_at=currenttime,
+        )
+        self.DBSession.add(movie)
+        self.DBSession.commit()
+        return {'id': movie.id, 'name': item['name'], 'title': item['title'], 'href': item['href']}
 
     def updateMovieInfo(self, diffresult, movieId, movieName):
         '''
         更新电影相关的字段  比较有难度的是比对字段信息
         :return:
         '''
-        with self.conn.cursor() as cursor:
-            fieldstring = ''
-            for field in diffresult.keys():
-                value = diffresult[field]
-                if value:
-                    perfield = " %s='%s'," % (field, value)
-                    fieldstring = fieldstring + perfield
-            if fieldstring:
-                fieldsql = fieldstring[0:-1]
-                updateSql = "UPDATE movie_movie_list SET %s WHERE id=%s" % (fieldsql, movieId)
-                print('/////////////////////////////////////')
-                print('更新电影数据' + movieName)
-                print('/////////////////////////////////////')
-                cursor.execute(updateSql)
-                self.conn.commit()
+        movie = self.DBSession.query(MovieMovieList).filter_by(id=movieId).first()
+        for field in diffresult.keys():
+            value = diffresult[field]
+            if value:
+                setattr(movie, field, value)
+        self.DBSession.commit()
+        print('/////////////////////////////////////')
+        print('更新电影数据' + movieName)
+        print('/////////////////////////////////////')
 
     def addMovieDownload(self, downloadlink, movie_id, movie_name, href, comefrom):
         '''
@@ -231,42 +231,33 @@ class MovieManage(object):
         '''
         # 首先需要检查下是不是已经有了该下载链接
         # 添加电影的下载链接 这块可以单独封装函数
-        add_download_sql = 'insert into movie_download_link(movie_id,movie_name,comefrom,type_name, type_id, href, text, pwd,pre_href,created_at, updated_at) VALUES '
-        templatesql = "(%s,'%s','%s','%s',%s,'%s','%s','%s','%s',%s,%s)"
-        insert_sql = ''
         currenttime = int(time.time())
-        i = 1
-        with self.conn.cursor() as cursor:
-            for download in downloadlink:
-                if download['href'] is None or self.searchDownloadIsexists(download, movie_id) is not None:
-                    continue
-                ######################
-                # 需要获取下是不是  该下载链接已经存在 需要添加电影名称
-                ######################
-                download_sql = templatesql % (
-                    movie_id, movie_name, comefrom, download['type_name'], download['type_id'], download['href'],
-                    download['text'], download['pwd'], href, currenttime,
-                    currenttime)
-                if i == 1:
-                    insert_sql = download_sql
-                else:
-                    insert_sql = insert_sql + ',' + download_sql
-                i = i + 1
-            if insert_sql:
-                print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.')
-                print(add_download_sql + insert_sql)
-                print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.')
-                cursor.execute(add_download_sql + insert_sql)
-                self.conn.commit()
+        downloadlinkarr = []
+        for download in downloadlink:
+            if download['href'] is None or self.searchDownloadIsexists(download, movie_id) is not None:
+                continue
+            downloadlinkarr.append(
+                MovieDownloadLink(
+                    movie_id=movie_id,
+                    movie_name=movie_name,
+                    comefrom=comefrom,
+                    type_name=download['type_name'],
+                    type_id=download['type_id'],
+                    href=download['href'],
+                    pre_href=href,
+                    text=download['text'],
+                    pwd=download['pwd'],
+                    created_at=currenttime,
+                    updated_at=currenttime,
+                ))
+        print(downloadlinkarr)
+        self.DBSession.add_all(downloadlinkarr)
+        self.DBSession.flush()
+        self.DBSession.commit()
 
     def searchDownloadIsexists(self, download, movie_id):
         '''查看下是不是当前电影下载链接是不是已经有了'''
-        with self.conn.cursor() as cursor:
-            selectsql = 'select id from movie_download_link WHERE href="%s" and movie_id=%s' % (
-                download['href'], movie_id)
-            cursor.execute(selectsql)
-            return cursor.fetchone()
-        return None
+        return self.DBSession.query(MovieDownloadLink).filter_by(href=download['href'], movie_id=movie_id).first()
 
     def addMovieImgset(self, imglist, movie_id, movie_name, comefrom, href):
         '''
@@ -274,29 +265,25 @@ class MovieManage(object):
         :return:
         '''
         # 首先需要检查下是不是已经有了该图片链接
-        # print(imglist)
-        with self.conn.cursor() as cursor:
-            # 然后添加电影的图片链接 这块可以单独封装函数
-            add_img_sql = 'insert into movie_imglist(movie_id,movie_name,imgsrc,comefrom,href,created_at,updated_at) VALUES'
-            imgtemplatesql = "(%s,'%s','%s','%s','%s',%s,%s)"
-            insert_img_sql = ''
-            currenttime = int(time.time())
-            i = 1
-            for img in imglist:
-                # 首先需要看下是不是已经存在
-                if self.searchImgIsexists(img, movie_id) is None:
-                    img_sql = imgtemplatesql % (movie_id, movie_name, img, comefrom, href, currenttime, currenttime)
-                    if i == 1:
-                        insert_img_sql = img_sql
-                    else:
-                        insert_img_sql = insert_img_sql + ',' + img_sql
-                    i = i + 1
-            if insert_img_sql:
-                print('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
-                print(add_img_sql + insert_img_sql)
-                print('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
-                cursor.execute(add_img_sql + insert_img_sql)
-                self.conn.commit()
+        currenttime = int(time.time())
+        imgflist = []
+        for img in imglist:
+            # 首先需要看下是不是已经存在
+            if self.searchImgIsexists(img, movie_id) is not None:
+                continue
+            imgflist.append(MovieImglist(
+                movie_id=movie_id,
+                movie_name=movie_name,
+                comefrom=comefrom,
+                imgsrc=img,
+                href=href,
+                created_at=currenttime,
+                updated_at=currenttime,
+            ))
+        print(imgflist)
+        self.DBSession.add_all(imgflist)
+        self.DBSession.flush()
+        self.DBSession.commit()
 
     def searchImgIsexists(self, img, movie_id):
         '''
@@ -305,14 +292,9 @@ class MovieManage(object):
         :param movie_id:
         :return:
         '''
-        print(img)
-        with self.conn.cursor() as cursor:
-            selectsql = 'select id from movie_imglist WHERE imgsrc="%s" and movie_id=%s' % (img, movie_id)
-            cursor.execute(selectsql)
-            return cursor.fetchone()
-        return None
+        return self.DBSession.query(MovieImglist).filter_by(imgsrc=img, movie_id=movie_id).first()
 
-    def changeMovieHasScrapy(self, movieInfo, comefrom):
+    def changeMovieHasScrapy(self, name, comefrom):
         '''
         修改电影是不是已经爬取
         :param comefrom:
@@ -321,16 +303,16 @@ class MovieManage(object):
         后期需要添加update
         '''
         #  首先需要查下是不是已经包含了
-        name = movieInfo['name'] if movieInfo['name'] else movieInfo['title']
         currenttime = int(time.time())
-        with self.conn.cursor() as cursor:
-            insertSql = "insert into automovie.movie_has_scrapy_info(name, comefrom, reget, addtime, updatetime) VALUES('%s','%s','10','%s','%s') " % (
-                name, comefrom, currenttime, currenttime)
-            print('}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}')
-            print(insertSql)
-            print('}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}')
-            cursor.execute(insertSql)
-            self.conn.commit()
+        self.DBSession.add(
+            MovieHasScrapyInfo(
+                name=name,
+                comefrom=comefrom,
+                reget='10',
+                addtime=currenttime,
+                updatetime=currenttime,
+            ))
+        self.DBSession.commit()
 
 
 class MovieTypeManage(object):
@@ -339,7 +321,7 @@ class MovieTypeManage(object):
     '''
 
     def __init__(self, dbargs):
-        self.conn = pymysql.connect(**dbargs)
+        self.DBSession = getsession(**dbargs)
 
     def getSetMovieType(self, movietype_info):
         '''
@@ -350,33 +332,27 @@ class MovieTypeManage(object):
         type_info = []
         # 需要从数据库中 获取 电影的 类型：然后 匹配下电影的分类
         type_ids_str = ','
-        sql = "select id,name from movie_type"
-        print(sql)
-        with self.conn.cursor() as cursor:
-            cursor.execute(sql)
-            type_info = cursor.fetchall()
-            print(type_info)
-            for movietype in movietype_info:
-                # 数据库中爬取的分类
-                if not movietype:
-                    continue
-                type_id = 0
-                for typedict in type_info:
-                    if typedict['name'] in movietype:
-                        type_id = typedict['id']
-                        break
-                if type_id == 0:
-                    # 表示某个字段没有匹配到需要添加到数据库中
-                    currenttime = int(time.time())
-                    typesql = 'insert into movie_type(`name`,`created_at`) VALUES ("%s","%s")' % (
-                        movietype, currenttime)
-                    cursor.execute(typesql)
-                    self.conn.commit()
-                    # 然后获取 插入的id 是多少
-                    selectsql = 'select id,name from movie_type WHERE name="%s"' % movietype
-                    cursor.execute(selectsql)
-                    type_id = cursor.fetchone()['id']
-                type_ids_str = type_ids_str + str(type_id) + ','
+        type_info = self.DBSession.query(MovieType).with_entities(MovieType.id, MovieType.name).all()
+        for movietype in movietype_info:
+            # 数据库中爬取的分类
+            if not movietype:
+                continue
+            type_id = 0
+            for typedict in type_info:
+                if typedict.name in movietype:
+                    type_id = typedict.id
+                    break
+            if type_id == 0:
+                # 表示某个字段没有匹配到需要添加到数据库中
+                currenttime = int(time.time())
+                type = MovieType(
+                    name=movietype,
+                    created_at=currenttime
+                )
+                self.DBSession.add(type)
+                self.DBSession.commit()
+                type_id = type.id
+            type_ids_str = type_ids_str + str(type_id) + ','
         print('????????????????????????????///////')
         print(type_ids_str)
         print('????????????????????????????///////')

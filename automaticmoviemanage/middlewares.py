@@ -67,19 +67,18 @@ class SeleniumWebdriver(object):
     # @classmethod
     # def from_crawler(cls, crawler):
     #     return cls(crawler.settings.getlist('PC_USER_AGENTS'))
-
     def process_request(self, request, spider):
         if 'web' in request.meta.keys() and request.meta['web']:
-            print("PhantomJS is starting...")
-            driver = webdriver.PhantomJS()  # 指定使用的浏览器
-            # chrome_options = webdriver.ChromeOptions()
-            # prefs = {"profile.managed_default_content_settings.images": 2}
-            # chrome_options.add_experimental_option("prefs", prefs)
-            # driver = webdriver.Chrome(chrome_options=chrome_options)
+            print("chrome is starting...")
+            chrome_options = webdriver.ChromeOptions()
+            prefs = {"profile.managed_default_content_settings.images": 2}
+            chrome_options.add_experimental_option("prefs", prefs)
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--disable-gpu')
+            driver = webdriver.Chrome(chrome_options=chrome_options)
             driver.set_script_timeout(10)
-            # driver = webdriver.Firefox()
             driver.get(request.url)
-            time.sleep(5)
+            time.sleep(10)
             body = driver.page_source
             print("访问" + request.url)
             return HtmlResponse(driver.current_url, body=body, encoding='utf-8', request=request)
